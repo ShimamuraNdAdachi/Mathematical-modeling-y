@@ -3,7 +3,7 @@ from datetime import time
 from typing import List, Tuple, Dict, Optional
 from Direction import Direction
 from Position import Position
-
+from DynamicPlanner import DynamicPlanner
 
 class Robot:
     def __init__(self, robot_id: str, initial_position: Position):
@@ -11,7 +11,8 @@ class Robot:
         self.position = initial_position
         self.carrying_item: Optional[str] = None  # 存储正在携带的货物ID（A, B, C...）
         self.item_source: Optional[str] = None  # 存储货物来源的取货点ID（PA, PB...）
-        self.path: List[Position] = None  #存储机器人未来的路线
+        self.future_route: List[Position] = None  #存储机器人未来的路线
+        self.history_route: List[tuple(Position,bool)] = None
 
     def move(self, direction: Direction) -> Position:
         """移动机器人到新的位置"""
@@ -48,6 +49,7 @@ class Warehouse:
         self.robot_positions = set()  # 用于跟踪机器人位置的缓存
         self.pickup_points: Dict[str, Position] = {}  # 存储所有取货点，键为取货点ID（PA, PB等）
         self.picked_shelves = set()  # 存储已被拾取的货架ID
+        self.time_count: int = 0
 
     def _generate_next_letter_id(self) -> str:
         """生成下一个字母ID，类似Excel列名：A, B, ..., Z, AA, AB, ..., AZ, BA, BB, ..."""
@@ -169,8 +171,15 @@ class Warehouse:
         robot = self.robots[robot_id]
         new_position = robot.position + direction.value
 
-        if not self._is_position_valid(new_position) or \
-                not self._is_position_available(new_position):
+        if not self._is_position_valid(new_position):
+            return False
+
+        if not self._is_position_available(new_position):
+            DynamicPlanner.assignment_type(
+                robot_id,
+                self,
+                self._get_position_unavailable_robot(new_position)
+            )
             return False
 
         # 更新机器人位置
@@ -236,6 +245,23 @@ class Warehouse:
         """检查位置是否被其他机器人占用"""
         self.flash_robots_position()
         return (position.x, position.y) not in self.robot_positions
+
+    def _get_position_unavailable_robot(self, pos: Position) -> str:
+        """
+        若位置不可用，则获取该位置机器人
+        :param pos:
+        :return:
+        """
+        #空位置无法获取机器人位置
+        if self._is_position_available(pos):
+            return None
+        #仓库边缘无机器人
+        if not self._is_position_valid(pos):
+            return None
+        #_is_position_available已刷新robot_positions成员变量，此处无需再刷新
+        for rid,r in self.robots.items():
+            if r.position == pos:
+                return rid
 
     def display_warehouse(self):
         """以表格形式显示仓库状态"""
@@ -360,18 +386,30 @@ class Warehouse:
     def tick(self) -> tuple(int):
         """
         所有机器人根据路径列表全部进行一次移动
-        :return: int每次tick所消耗时间，单位毫秒ms
+        :return: tuple(每次tick所消耗时间，单位毫秒ms;成功移动总次数)
         """
         start_time = time.perf_counter()
         move_count = 0
         for rid, r in self.robots.items():
-            if r.path is None:continue
-            if r.path[0].x == r.position.x and r.path[0].y == r.position.y:
-                del r.path[0]
+            if r.future_route is None:continue
+            #未来路径列表首元素为原坐标，需移除
+            if r.future_route[0].x == r.position.x and r.future_route[0].y == r.position.y:
+                del r.future_route[0]
+            #记录历史路径，便于统计
+            for pickId, pickPoint in self.pickup_points.items():
+                if pickPoint == r.position:
+                    r.history_route.append(
+                        (r.position, True)
+                    )
+            r.history_route.append(
+                (r.position, False)
+            )
             self.move_robot(rid,
-                            Direction.coordinates_to_direction(r.path.pop(0).x - r.position.x,
-                                                               r.path.pop(0).y - r.position.y))
+                            Direction.coordinates_to_direction(r.future_route.pop(0).x - r.position.x,
+                                                               r.future_route.pop(0).y - r.position.y))
+
             move_count += 1
+        self.time_count += 1
         end_time = time.perf_counter()
         return ((end_time - start_time) * 1000, move_count)
 
