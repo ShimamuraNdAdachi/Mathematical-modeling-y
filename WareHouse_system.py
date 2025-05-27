@@ -1,29 +1,7 @@
 import random
 from typing import List, Tuple, Dict, Optional
-from dataclasses import dataclass
-from enum import Enum
-
-
-class Direction(Enum):
-    UP = (0, -1)  # 向上移动时y减小
-    DOWN = (0, 1)  # 向下移动时y增加
-    LEFT = (-1, 0)  # 向左移动时x减小
-    RIGHT = (1, 0)  # 向右移动时x增加
-
-
-@dataclass
-class Position:
-    x: int
-    y: int
-
-    def __add__(self, other):
-        return Position(self.x + other[0], self.y + other[1])
-
-    def __eq__(self, other):
-        if not isinstance(other, Position):
-            return False
-        return self.x == other.x and self.y == other.y
-
+from Direction import Direction
+from Position import Position
 
 class Robot:
     def __init__(self, robot_id: str, initial_position: Position):
@@ -31,6 +9,7 @@ class Robot:
         self.position = initial_position
         self.carrying_item: Optional[str] = None  # 存储正在携带的货物ID（A, B, C...）
         self.item_source: Optional[str] = None  # 存储货物来源的取货点ID（PA, PB...）
+        self.path: List[Position] #存储机器人未来的路线
 
     def move(self, direction: Direction) -> Position:
         """移动机器人到新的位置"""
@@ -146,6 +125,11 @@ class Warehouse:
         self.robots[robot_id] = robot
         self.robot_positions.add((initial_position.x, initial_position.y))
         return True
+
+    def get_robot_position(self, robot_id: str) -> Position:
+        for i,robot in self.robots.items():
+            if robot_id == i:
+                return Position(robot.position.x,robot.position.y)
 
     def place_robot_at_pickup(self, robot_id: str, pickup_id: str) -> bool:
         """将指定机器人放置到指定取货点，如果成功则自动拾取物品"""
