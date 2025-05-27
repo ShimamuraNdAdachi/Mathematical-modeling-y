@@ -1,7 +1,9 @@
 import random
+from datetime import time
 from typing import List, Tuple, Dict, Optional
 from Direction import Direction
 from Position import Position
+
 
 class Robot:
     def __init__(self, robot_id: str, initial_position: Position):
@@ -9,7 +11,7 @@ class Robot:
         self.position = initial_position
         self.carrying_item: Optional[str] = None  # 存储正在携带的货物ID（A, B, C...）
         self.item_source: Optional[str] = None  # 存储货物来源的取货点ID（PA, PB...）
-        self.path: List[Position] #存储机器人未来的路线
+        self.path: List[Position] = None  #存储机器人未来的路线
 
     def move(self, direction: Direction) -> Position:
         """移动机器人到新的位置"""
@@ -43,7 +45,7 @@ class Warehouse:
         self.height = height
         self.robots: Dict[str, Robot] = {}
         self.delivery_station = Position(width - 1, height - 1)
-        self.robot_positions = set()  # 用于跟踪机器人位置
+        self.robot_positions = set()  # 用于跟踪机器人位置的缓存
         self.pickup_points: Dict[str, Position] = {}  # 存储所有取货点，键为取货点ID（PA, PB等）
         self.picked_shelves = set()  # 存储已被拾取的货架ID
 
@@ -70,6 +72,7 @@ class Warehouse:
         # 获取所有可用位置
         occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
         occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+        self.flash_robots_position()
         occupied_positions.update(self.robot_positions)
 
         available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
@@ -106,6 +109,7 @@ class Warehouse:
             # 找一个不是取货点也不是支付台的空闲位置
             occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
             occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+            self.flash_robots_position()
             occupied_positions.update(self.robot_positions)
 
             available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
@@ -123,13 +127,8 @@ class Warehouse:
 
         robot = Robot(robot_id, initial_position)
         self.robots[robot_id] = robot
-        self.robot_positions.add((initial_position.x, initial_position.y))
+        #self.robot_positions.add((initial_position.x, initial_position.y)) #此步移入刷新缓存flash_robots_position方法中
         return True
-
-    def get_robot_position(self, robot_id: str) -> Position:
-        for i,robot in self.robots.items():
-            if robot_id == i:
-                return Position(robot.position.x,robot.position.y)
 
     def place_robot_at_pickup(self, robot_id: str, pickup_id: str) -> bool:
         """将指定机器人放置到指定取货点，如果成功则自动拾取物品"""
@@ -143,10 +142,10 @@ class Warehouse:
 
         robot = self.robots[robot_id]
         # 移除原位置
-        self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
         # 更新到新位置
         robot.position = pickup_pos
-        self.robot_positions.add((pickup_pos.x, pickup_pos.y))
+        #self.robot_positions.add((pickup_pos.x, pickup_pos.y))
         # 自动拾取物品
         if robot.pick_item(pickup_id):
             self.picked_shelves.add(pickup_id)  # 标记货架已被拾取
@@ -158,7 +157,7 @@ class Warehouse:
             return False
 
         robot = self.robots[robot_id]
-        self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
         del self.robots[robot_id]
         return True
 
@@ -175,9 +174,9 @@ class Warehouse:
             return False
 
         # 更新机器人位置
-        self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
         robot.move(direction)
-        self.robot_positions.add((robot.position.x, robot.position.y))
+        #self.robot_positions.add((robot.position.x, robot.position.y))
 
         # 检查是否到达支付台并且携带货物
         if (robot.position.x == self.delivery_station.x and
@@ -197,6 +196,7 @@ class Warehouse:
                 # 获取所有可用位置
                 occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
                 occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+                self.flash_robots_position()
                 occupied_positions.update(self.robot_positions)
                 occupied_positions.remove((robot.position.x, robot.position.y))
 
@@ -234,6 +234,7 @@ class Warehouse:
 
     def _is_position_available(self, position: Position) -> bool:
         """检查位置是否被其他机器人占用"""
+        self.flash_robots_position()
         return (position.x, position.y) not in self.robot_positions
 
     def display_warehouse(self):
@@ -350,6 +351,29 @@ class Warehouse:
 
         print(f"机器人{robot_id}已创建并分配到取货点{pickup_id}")
         return True, pickup_id
+
+    def flash_robots_position(self):
+        self.robot_positions = None
+        for r_id, r in self.robots:
+            self.robot_positions.add(r.position)
+
+    def tick(self) -> tuple(int):
+        """
+        所有机器人根据路径列表全部进行一次移动
+        :return: int每次tick所消耗时间，单位毫秒ms
+        """
+        start_time = time.perf_counter()
+        move_count = 0
+        for rid, r in self.robots.items():
+            if r.path is None:continue
+            if r.path[0].x == r.position.x and r.path[0].y == r.position.y:
+                del r.path[0]
+            self.move_robot(rid,
+                            Direction.coordinates_to_direction(r.path.pop(0).x - r.position.x,
+                                                               r.path.pop(0).y - r.position.y))
+            move_count += 1
+        end_time = time.perf_counter()
+        return ((end_time - start_time) * 1000, move_count)
 
 
 def main():
