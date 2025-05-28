@@ -1,7 +1,11 @@
 import random
+import time
+from datetime import time as dt_time
 from typing import List, Tuple, Dict, Optional
 from Direction import Direction
 from Position import Position
+from DynamicPlanner import DynamicPlanner
+from AStarPlanning import AStarPlanning
 
 class Robot:
     def __init__(self, robot_id: str, initial_position: Position):
@@ -9,7 +13,9 @@ class Robot:
         self.position = initial_position
         self.carrying_item: Optional[str] = None  # 存储正在携带的货物ID（A, B, C...）
         self.item_source: Optional[str] = None  # 存储货物来源的取货点ID（PA, PB...）
-        self.path: List[Position] #存储机器人未来的路线
+        self.future_route: List[Position] = []  #存储机器人未来的路线
+        self.history_route: List[tuple[Position,bool]] = []
+        self.target: Position = None
 
     def move(self, direction: Direction) -> Position:
         """移动机器人到新的位置"""
@@ -43,9 +49,11 @@ class Warehouse:
         self.height = height
         self.robots: Dict[str, Robot] = {}
         self.delivery_station = Position(width - 1, height - 1)
-        self.robot_positions = set()  # 用于跟踪机器人位置
+        self.robot_positions = set() # 用于跟踪机器人位置的缓存
         self.pickup_points: Dict[str, Position] = {}  # 存储所有取货点，键为取货点ID（PA, PB等）
         self.picked_shelves = set()  # 存储已被拾取的货架ID
+        self.time_count: int = 0
+        self.dynamic_planner: DynamicPlanner = DynamicPlanner(self)
 
     def _generate_next_letter_id(self) -> str:
         """生成下一个字母ID，类似Excel列名：A, B, ..., Z, AA, AB, ..., AZ, BA, BB, ..."""
@@ -62,7 +70,7 @@ class Warehouse:
         return int_to_excel_col(len(self.pickup_points) + 1)
 
     def add_pickup_point(self) -> Optional[str]:
-        """添加一个新的取货点，返回新取货点的ID"""
+        """添加一个新地取货点，返回新取货点的ID"""
         # 计算下一个取货点的字母标识
         next_letter = self._generate_next_letter_id()
         pickup_id = f"P{next_letter}"
@@ -70,6 +78,7 @@ class Warehouse:
         # 获取所有可用位置
         occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
         occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+        self.flash_robots_position()
         occupied_positions.update(self.robot_positions)
 
         available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
@@ -103,33 +112,29 @@ class Warehouse:
             return False
 
         if initial_position is None:
-            # 找一个不是取货点也不是支付台的空闲位置
-            occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
-            occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
-            occupied_positions.update(self.robot_positions)
-
-            available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
-                                   if (x, y) not in occupied_positions]
-
-            if not available_positions:
-                return False
-
-            pos_x, pos_y = random.choice(available_positions)
-            initial_position = Position(pos_x, pos_y)
-
-        if not self._is_position_valid(initial_position) or \
+            # # 找一个不是取货点也不是支付台的空闲位置
+            # occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
+            # occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+            # self.flash_robots_position()
+            # occupied_positions.update(self.robot_positions)
+            #
+            # available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
+            #                        if (x, y) not in occupied_positions]
+            #
+            # if not available_positions:
+            #     return False
+            #
+            # pos_x, pos_y = random.choice(available_positions)
+            initial_position = Position(-1, -1)
+        elif not self._is_position_valid(initial_position) or \
                 not self._is_position_available(initial_position):
             return False
 
         robot = Robot(robot_id, initial_position)
+        robot.target = self.delivery_station
         self.robots[robot_id] = robot
-        self.robot_positions.add((initial_position.x, initial_position.y))
+        #self.robot_positions.add((initial_position.x, initial_position.y)) #此步移入刷新缓存flash_robots_position方法中
         return True
-
-    def get_robot_position(self, robot_id: str) -> Position:
-        for i,robot in self.robots.items():
-            if robot_id == i:
-                return Position(robot.position.x,robot.position.y)
 
     def place_robot_at_pickup(self, robot_id: str, pickup_id: str) -> bool:
         """将指定机器人放置到指定取货点，如果成功则自动拾取物品"""
@@ -143,10 +148,10 @@ class Warehouse:
 
         robot = self.robots[robot_id]
         # 移除原位置
-        self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
         # 更新到新位置
         robot.position = pickup_pos
-        self.robot_positions.add((pickup_pos.x, pickup_pos.y))
+        #self.robot_positions.add((pickup_pos.x, pickup_pos.y))
         # 自动拾取物品
         if robot.pick_item(pickup_id):
             self.picked_shelves.add(pickup_id)  # 标记货架已被拾取
@@ -158,7 +163,7 @@ class Warehouse:
             return False
 
         robot = self.robots[robot_id]
-        self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
         del self.robots[robot_id]
         return True
 
@@ -170,14 +175,21 @@ class Warehouse:
         robot = self.robots[robot_id]
         new_position = robot.position + direction.value
 
-        if not self._is_position_valid(new_position) or \
-                not self._is_position_available(new_position):
+        if not self._is_position_valid(new_position):
+            return False
+
+        if not self._is_position_available(new_position):
+            self.dynamic_planner.assignment_type(
+                robot_id,
+                self._get_position_unavailable_robot(new_position),
+                "collision"
+            )
             return False
 
         # 更新机器人位置
-        self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
         robot.move(direction)
-        self.robot_positions.add((robot.position.x, robot.position.y))
+        #self.robot_positions.add((robot.position.x, robot.position.y))
 
         # 检查是否到达支付台并且携带货物
         if (robot.position.x == self.delivery_station.x and
@@ -197,6 +209,7 @@ class Warehouse:
                 # 获取所有可用位置
                 occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
                 occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+                self.flash_robots_position()
                 occupied_positions.update(self.robot_positions)
                 occupied_positions.remove((robot.position.x, robot.position.y))
 
@@ -211,6 +224,11 @@ class Warehouse:
                     # 新创建的货架未被拾取
                     if new_pickup_id in self.picked_shelves:
                         self.picked_shelves.remove(new_pickup_id)
+                    # 分配此机器人下一个目标
+                    # distances = list()
+                    # for pickId,pickPos in self.pickup_points.items():
+                    #     distances.append(AStarPlanning.manhattan_distance_cal(robot.position, pickPos))
+                    robot.target = self.pickup_points[new_pickup_id]
                 else:
                     print("无法创建新货架，仓库已满")
 
@@ -234,7 +252,25 @@ class Warehouse:
 
     def _is_position_available(self, position: Position) -> bool:
         """检查位置是否被其他机器人占用"""
+        self.flash_robots_position()
         return (position.x, position.y) not in self.robot_positions
+
+    def _get_position_unavailable_robot(self, pos: Position) -> str:
+        """
+        若位置不可用，则获取该位置机器人
+        :param pos:
+        :return:
+        """
+        #空位置无法获取机器人位置
+        if self._is_position_available(pos):
+            return None
+        #仓库边缘无机器人
+        if not self._is_position_valid(pos):
+            return None
+        #_is_position_available已刷新robot_positions成员变量，此处无需再刷新
+        for rid,r in self.robots.items():
+            if r.position == pos:
+                return rid
 
     def display_warehouse(self):
         """以表格形式显示仓库状态"""
@@ -316,7 +352,7 @@ class Warehouse:
         Returns:
             Tuple[bool, Optional[str]]: (是否成功, 分配的取货点ID)
         """
-        # 先创建新的取货点
+        # 先创建新地取货点
         pickup_id = self.add_pickup_point()
         if not pickup_id:
             print(f"无法为机器人{robot_id}创建新的取货点")
@@ -324,18 +360,18 @@ class Warehouse:
 
         # 先在一个临时位置创建机器人
         temp_pos = None
-        for x in range(self.width):
-            for y in range(self.height):
-                pos = Position(x, y)
-                if self._is_position_valid(pos) and self._is_position_available(pos):
-                    temp_pos = pos
-                    break
-            if temp_pos:
-                break
-
-        if not temp_pos:
-            self.remove_pickup_point(pickup_id)
-            return False, None
+        # for x in range(self.width):
+        #     for y in range(self.height):
+        #         pos = Position(x, y)
+        #         if self._is_position_valid(pos) and self._is_position_available(pos):
+        #             temp_pos = pos
+        #             break
+        #     if temp_pos:
+        #         break
+        #
+        # if not temp_pos:
+        #     self.remove_pickup_point(pickup_id)
+        #     return False, None
 
         # 创建机器人在临时位置
         if not self.add_robot(robot_id, temp_pos):
@@ -351,68 +387,108 @@ class Warehouse:
         print(f"机器人{robot_id}已创建并分配到取货点{pickup_id}")
         return True, pickup_id
 
+    def flash_robots_position(self):
+        self.robot_positions = set()
+        for r_id, r in self.robots.items():
+            self.robot_positions.add((r.position.x,r.position.y))
+
+    def tick(self) -> tuple:
+        """
+        所有机器人根据路径列表全部进行一次移动
+        :return: tuple(每次tick所消耗时间，单位毫秒ms;成功移动总次数)
+        """
+        start_time = time.perf_counter()
+        move_count = 0
+        for rid, r in self.robots.items():
+            if not r.future_route:
+                self.dynamic_planner._set_route(rid)
+
+            #记录历史路径，便于统计
+            for pickId, pickPoint in self.pickup_points.items():
+                if pickPoint == r.position or r.position == self.delivery_station:
+                    r.history_route.append(
+                        (r.position, True)
+                    )
+                else:
+                    r.history_route.append(
+                        (r.position, False)
+                    )
+            r_nextPos=r.future_route[0]
+            if self.move_robot(rid,
+                            Direction.coordinates_to_direction(
+                                r_nextPos.x - r.position.x,
+                                r_nextPos.y - r.position.y
+                            )):
+                r.future_route.pop(0)
+            #r.future_route.insert(0,r_nextPos)
+            move_count += 1
+        self.time_count += 1
+        end_time = time.perf_counter()
+        return ((end_time - start_time) * 1000, move_count)
+
 
 def main():
-    # 创建一个6x6的仓库示例
-    warehouse = Warehouse(6, 6)
-
-    # 添加机器人R1
-    print("\n创建机器人R1:")
-    success, pickup_id = warehouse.add_robot_with_pickup("R1")
-    if success:
-        print(f"机器人R1已分配到取货点{pickup_id}")
-        print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-        print(f"物品来源: {warehouse.robots['R1'].item_source}")
-    warehouse.display_warehouse()
-
-    # 添加机器人R2
-    print("\n创建机器人R2:")
-    success, pickup_id = warehouse.add_robot_with_pickup("R2")
-    if success:
-        print(f"机器人R2已分配到取货点{pickup_id}")
-        print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-        print(f"物品来源: {warehouse.robots['R2'].item_source}")
-    warehouse.display_warehouse()
-
-    # R1的运动路径：向右到底 -> 向下到底 -> 交付 -> 向上到顶
-    print("\n机器人R1开始移动:")
-    print("R1向右移动到底:")
-    for _ in range(warehouse.width):  # 向右移动
-        if warehouse.move_robot("R1", Direction.RIGHT):
-            print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR1向下移动到底:")
-    for _ in range(warehouse.height):  # 向下移动
-        if warehouse.move_robot("R1", Direction.DOWN):
-            print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR1向上移动到顶:")
-    for _ in range(warehouse.height):  # 向上移动
-        if warehouse.move_robot("R1", Direction.UP):
-            print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-            warehouse.display_warehouse()
-
-    # R2的运动路径：向下到底 -> 向右到底 -> 交付 -> 向左到头
-    print("\n机器人R2开始移动:")
-    print("R2向下移动到底:")
-    for _ in range(warehouse.height):  # 向下移动
-        if warehouse.move_robot("R2", Direction.DOWN):
-            print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR2向右移动到底:")
-    for _ in range(warehouse.width):  # 向右移动
-        if warehouse.move_robot("R2", Direction.RIGHT):
-            print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR2向左移动到头:")
-    for _ in range(warehouse.width):  # 向左移动
-        if warehouse.move_robot("R2", Direction.LEFT):
-            print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-            warehouse.display_warehouse()
+    print("w")
+    # # 创建一个6x6的仓库示例
+    # warehouse = Warehouse(6, 6)
+    #
+    # # 添加机器人R1
+    # print("\n创建机器人R1:")
+    # success, pickup_id = warehouse.add_robot_with_pickup("R1")
+    # if success:
+    #     print(f"机器人R1已分配到取货点{pickup_id}")
+    #     print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #     print(f"物品来源: {warehouse.robots['R1'].item_source}")
+    # warehouse.display_warehouse()
+    #
+    # # 添加机器人R2
+    # print("\n创建机器人R2:")
+    # success, pickup_id = warehouse.add_robot_with_pickup("R2")
+    # if success:
+    #     print(f"机器人R2已分配到取货点{pickup_id}")
+    #     print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #     print(f"物品来源: {warehouse.robots['R2'].item_source}")
+    # warehouse.display_warehouse()
+    #
+    # # R1的运动路径：向右到底 -> 向下到底 -> 交付 -> 向上到顶
+    # print("\n机器人R1开始移动:")
+    # print("R1向右移动到底:")
+    # for _ in range(warehouse.width):  # 向右移动
+    #     if warehouse.move_robot("R1", Direction.RIGHT):
+    #         print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR1向下移动到底:")
+    # for _ in range(warehouse.height):  # 向下移动
+    #     if warehouse.move_robot("R1", Direction.DOWN):
+    #         print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR1向上移动到顶:")
+    # for _ in range(warehouse.height):  # 向上移动
+    #     if warehouse.move_robot("R1", Direction.UP):
+    #         print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # # R2的运动路径：向下到底 -> 向右到底 -> 交付 -> 向左到头
+    # print("\n机器人R2开始移动:")
+    # print("R2向下移动到底:")
+    # for _ in range(warehouse.height):  # 向下移动
+    #     if warehouse.move_robot("R2", Direction.DOWN):
+    #         print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR2向右移动到底:")
+    # for _ in range(warehouse.width):  # 向右移动
+    #     if warehouse.move_robot("R2", Direction.RIGHT):
+    #         print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR2向左移动到头:")
+    # for _ in range(warehouse.width):  # 向左移动
+    #     if warehouse.move_robot("R2", Direction.LEFT):
+    #         print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #         warehouse.display_warehouse()
 
 
 if __name__ == "__main__":
