@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
+
 @dataclass
-class Position:
+class Position():
     x: int
     y: int
 
