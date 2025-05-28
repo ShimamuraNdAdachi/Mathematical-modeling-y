@@ -17,7 +17,7 @@ class DynamicPlanner:
         for pos, status in reversed(robot.history_route):
             if status:
                 break
-            task_time +=1
+            task_time += 1
 
         return task_time / remaining_time
 
@@ -72,5 +72,8 @@ class DynamicPlanner:
             robot.target,
             self.wHouse.robot_positions
         )
+        print(1)
+        print(robot.future_route)
+        print(1)
 
 

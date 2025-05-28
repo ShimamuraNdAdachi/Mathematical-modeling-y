@@ -6,13 +6,16 @@ class Direction(Enum):
     LEFT = (-1, 0)  # 向左移动时x减小
     RIGHT = (1, 0)  # 向右移动时x增加
 
-    LIST = [UP, DOWN, LEFT, RIGHT]
-    COORDINATES_TO_DIRECTION = {
-        (0, -1): UP,
-        (0, 1): DOWN,
-        (-1, 0): LEFT,
-        (1, 0): RIGHT
-    }
+    @classmethod
+    def get_directions(cls) -> tuple:
+        """返回包含所有方向值的元组"""
+        return tuple(member.value for member in cls)
     @staticmethod
     def coordinates_to_direction(dx, dy):
-        return Direction.COORDINATES_TO_DIRECTION.get((dx, dy))
+        COORDINATES_TO_DIRECTION = {
+            (0, -1): Direction.UP,
+            (0, 1): Direction.DOWN,
+            (-1, 0): Direction.LEFT,
+            (1, 0): Direction.RIGHT
+        }
+        return COORDINATES_TO_DIRECTION.get((dx, dy))

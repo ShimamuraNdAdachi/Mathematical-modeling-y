@@ -21,7 +21,10 @@ class AStarPlanning:
         :return: Position对象列表，表示路径
         """
         # 将障碍物位置转换为元组集合以便快速查找
-        obstacles = {(pos.x, pos.y) for pos in positions}
+        obstacles = set()
+        for pos in positions:
+            obstacles.add(pos)
+        # obstacles = {(pos.x, pos.y) for pos in positions}
 
         # 初始化open和closed集合
         open_set = []
@@ -53,8 +56,8 @@ class AStarPlanning:
             closed_set.add(current_tuple)
 
             # 检查所有可能的移动方向
-            for dire in Direction.LIST:
-                dx, dy = dire
+            for dx, dy in Direction.get_directions():
+
                 new_x = current_tuple[0] + dx
                 new_y = current_tuple[1] + dy
                 neighbor_tuple = (new_x, new_y)

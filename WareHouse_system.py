@@ -1,5 +1,6 @@
 import random
-from datetime import time
+import time
+from datetime import time as dt_time
 from typing import List, Tuple, Dict, Optional
 from Direction import Direction
 from Position import Position
@@ -48,7 +49,7 @@ class Warehouse:
         self.height = height
         self.robots: Dict[str, Robot] = {}
         self.delivery_station = Position(width - 1, height - 1)
-        self.robot_positions = set()  # 用于跟踪机器人位置的缓存
+        self.robot_positions = set() # 用于跟踪机器人位置的缓存
         self.pickup_points: Dict[str, Position] = {}  # 存储所有取货点，键为取货点ID（PA, PB等）
         self.picked_shelves = set()  # 存储已被拾取的货架ID
         self.time_count: int = 0
@@ -387,9 +388,9 @@ class Warehouse:
         return True, pickup_id
 
     def flash_robots_position(self):
-        self.robot_positions = None
-        for r_id, r in self.robots:
-            self.robot_positions.add(r.position)
+        self.robot_positions = set()
+        for r_id, r in self.robots.items():
+            self.robot_positions.add((r.position.x,r.position.y))
 
     def tick(self) -> tuple:
         """
@@ -399,8 +400,9 @@ class Warehouse:
         start_time = time.perf_counter()
         move_count = 0
         for rid, r in self.robots.items():
-            if r.future_route is None:
+            if not r.future_route:
                 self.dynamic_planner._set_route(rid)
+
             #记录历史路径，便于统计
             for pickId, pickPoint in self.pickup_points.items():
                 if pickPoint == r.position or r.position == self.delivery_station:
@@ -426,66 +428,67 @@ class Warehouse:
 
 
 def main():
-    # 创建一个6x6的仓库示例
-    warehouse = Warehouse(6, 6)
-
-    # 添加机器人R1
-    print("\n创建机器人R1:")
-    success, pickup_id = warehouse.add_robot_with_pickup("R1")
-    if success:
-        print(f"机器人R1已分配到取货点{pickup_id}")
-        print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-        print(f"物品来源: {warehouse.robots['R1'].item_source}")
-    warehouse.display_warehouse()
-
-    # 添加机器人R2
-    print("\n创建机器人R2:")
-    success, pickup_id = warehouse.add_robot_with_pickup("R2")
-    if success:
-        print(f"机器人R2已分配到取货点{pickup_id}")
-        print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-        print(f"物品来源: {warehouse.robots['R2'].item_source}")
-    warehouse.display_warehouse()
-
-    # R1的运动路径：向右到底 -> 向下到底 -> 交付 -> 向上到顶
-    print("\n机器人R1开始移动:")
-    print("R1向右移动到底:")
-    for _ in range(warehouse.width):  # 向右移动
-        if warehouse.move_robot("R1", Direction.RIGHT):
-            print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR1向下移动到底:")
-    for _ in range(warehouse.height):  # 向下移动
-        if warehouse.move_robot("R1", Direction.DOWN):
-            print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR1向上移动到顶:")
-    for _ in range(warehouse.height):  # 向上移动
-        if warehouse.move_robot("R1", Direction.UP):
-            print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
-            warehouse.display_warehouse()
-
-    # R2的运动路径：向下到底 -> 向右到底 -> 交付 -> 向左到头
-    print("\n机器人R2开始移动:")
-    print("R2向下移动到底:")
-    for _ in range(warehouse.height):  # 向下移动
-        if warehouse.move_robot("R2", Direction.DOWN):
-            print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR2向右移动到底:")
-    for _ in range(warehouse.width):  # 向右移动
-        if warehouse.move_robot("R2", Direction.RIGHT):
-            print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-            warehouse.display_warehouse()
-
-    print("\nR2向左移动到头:")
-    for _ in range(warehouse.width):  # 向左移动
-        if warehouse.move_robot("R2", Direction.LEFT):
-            print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
-            warehouse.display_warehouse()
+    print("w")
+    # # 创建一个6x6的仓库示例
+    # warehouse = Warehouse(6, 6)
+    #
+    # # 添加机器人R1
+    # print("\n创建机器人R1:")
+    # success, pickup_id = warehouse.add_robot_with_pickup("R1")
+    # if success:
+    #     print(f"机器人R1已分配到取货点{pickup_id}")
+    #     print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #     print(f"物品来源: {warehouse.robots['R1'].item_source}")
+    # warehouse.display_warehouse()
+    #
+    # # 添加机器人R2
+    # print("\n创建机器人R2:")
+    # success, pickup_id = warehouse.add_robot_with_pickup("R2")
+    # if success:
+    #     print(f"机器人R2已分配到取货点{pickup_id}")
+    #     print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #     print(f"物品来源: {warehouse.robots['R2'].item_source}")
+    # warehouse.display_warehouse()
+    #
+    # # R1的运动路径：向右到底 -> 向下到底 -> 交付 -> 向上到顶
+    # print("\n机器人R1开始移动:")
+    # print("R1向右移动到底:")
+    # for _ in range(warehouse.width):  # 向右移动
+    #     if warehouse.move_robot("R1", Direction.RIGHT):
+    #         print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR1向下移动到底:")
+    # for _ in range(warehouse.height):  # 向下移动
+    #     if warehouse.move_robot("R1", Direction.DOWN):
+    #         print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR1向上移动到顶:")
+    # for _ in range(warehouse.height):  # 向上移动
+    #     if warehouse.move_robot("R1", Direction.UP):
+    #         print(f"机器人R1携带物品: {warehouse.robots['R1'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # # R2的运动路径：向下到底 -> 向右到底 -> 交付 -> 向左到头
+    # print("\n机器人R2开始移动:")
+    # print("R2向下移动到底:")
+    # for _ in range(warehouse.height):  # 向下移动
+    #     if warehouse.move_robot("R2", Direction.DOWN):
+    #         print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR2向右移动到底:")
+    # for _ in range(warehouse.width):  # 向右移动
+    #     if warehouse.move_robot("R2", Direction.RIGHT):
+    #         print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #         warehouse.display_warehouse()
+    #
+    # print("\nR2向左移动到头:")
+    # for _ in range(warehouse.width):  # 向左移动
+    #     if warehouse.move_robot("R2", Direction.LEFT):
+    #         print(f"机器人R2携带物品: {warehouse.robots['R2'].carrying_item}")
+    #         warehouse.display_warehouse()
 
 
 if __name__ == "__main__":
