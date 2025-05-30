@@ -40,9 +40,23 @@ def func2():
 
 def func3():
     print(Direction.get_directions())
+    warehouse = Warehouse(20, 20)
+    print("we")
+    success, pickup_id = warehouse.add_robot_with_pickup("R1")
+    success, pickup_id = warehouse.add_robot_with_pickup("R2")
+    success, pickup_id = warehouse.add_robot_with_pickup("R3")
+    success, pickup_id = warehouse.add_robot_with_pickup("R4")
+    success, pickup_id = warehouse.add_robot_with_pickup("R5")
+
+    warehouse.display_warehouse()
+    for rid, r in warehouse.robots.items():
+        print(r.position)
+    print("\n\n\n\n\n")
+    # warehouse.flash_robots_position()
+    print(warehouse.robot_positions)
 
 func2()
-#func3()
+
 
 
 

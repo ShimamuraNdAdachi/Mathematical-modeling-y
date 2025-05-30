@@ -59,11 +59,7 @@ class Warehouse:
                         for pickup_id, position in self.pickup_points.items()
                         if pickup_id not in self.pickup_points
                     ]
-        self.nearest = min(
-            self.unpicked_positions,
-            key=lambda item: ((item[1].x - self.delivery_station.x) ** 2 +
-                              (item[1].y - self.delivery_station.y) ** 2) ** 0.5
-        )
+
 
     def _generate_next_letter_id(self) -> str:
         """生成下一个字母ID，类似Excel列名：A, B, ..., Z, AA, AB, ..., AZ, BA, BB, ..."""
@@ -430,6 +426,8 @@ class Warehouse:
         robot = self.robots[rid]
         self.recorder(rid)
 
+        if not robot.future_route:
+            self.dynamic_planner.set_route(rid)
         """
         for pickId,pickPos in self.pickup_points:
             # 机器人取货点被占用时，刚好移动至空闲取货点，造成空路径
@@ -458,46 +456,48 @@ class Warehouse:
                     r.target = nearest[1]
                     r.future_route = []
         """
-
-        if not robot.future_route:
-            self.dynamic_planner.set_route(rid)
-
         if robot.carrying_item is not None:
             robot.target = self.delivery_station
             self.dynamic_planner.set_route(rid)
         else:
+            # for pickId, pickPos in self.pickup_points:
+            #     if (robot.target == pickPos
+            #             # 检查当前目标取货点是否被其他机器人拾取
+            #             and pickId in self.picked_shelves
+            #             and not robot.position == pickPos):
+            # nearest_unpicked_positions = min(
+            #     self.unpicked_positions,
+            #     key=lambda item: ((item[1].x - self.delivery_station.x) ** 2 +
+            #                       (item[1].y - self.delivery_station.y) ** 2) ** 0.5
+            # )
             for pickId, pickPos in self.pickup_points:
-                if (robot.target == pickPos
-                        # 检查当前目标取货点是否被其他机器人拾取
-                        and pickId in self.picked_shelves
-                        and not robot.position == pickPos):
+                if pickPos == robot.target:
+                    self.picked_shelves.add(pickId)
+            robot.target = self.unpicked_positions[0]
+            self.dynamic_planner.set_route(rid)
 
-
-
-
-                    robot.target = nearest[1]
-                    self.dynamic_planner.set_route(rid)
-
-        while(True):
-            if not abs(robot.position.x - robot.future_route[0].x) + abs(robot.position.y - robot.future_route[0].y) == 1:
-                self.dynamic_planner.set_route(rid)
-            else:
-                break
-        print()
-        print(rid)
-        print(robot.carrying_item)
-        print(robot.position)
-        print(robot.future_route)
-        print(robot.target)
-
-        robot_nextPos = robot.future_route[0]
         if self.move_robot(rid,
                            Direction.coordinates_to_direction(
-                               robot_nextPos.x - robot.position.x,
-                               robot_nextPos.y - robot.position.y
+                               robot.future_route[0].x - robot.position.x,
+                               robot.future_route[0].y - robot.position.y
                            )):
             robot.future_route.pop(0)
             self.tick_successMoveCount += 1
+
+        while False:
+            if not abs(robot.position.x - robot.future_route[0].x) + abs(robot.position.y - robot.future_route[0].y) == 1:
+                self.dynamic_planner.set_route(rid)
+                # print()
+                # print(rid)
+                # print(robot.carrying_item)
+                # print(robot.position)
+                # print(robot.future_route)
+                # print(robot.target)
+            else:
+                break
+
+
+
 
 
     def recorder(self, rid: str):

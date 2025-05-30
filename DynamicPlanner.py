@@ -1,8 +1,11 @@
 # from WareHouse_system import Warehouse
 from math import sqrt
 from time import sleep
-
+from AStar import AStar
 from AStarPlanning import AStarPlanning
+from Position import Position
+
+
 class DynamicPlanner:
     def __init__(self, warehouse):
         self.wHouse = warehouse
@@ -18,8 +21,8 @@ class DynamicPlanner:
         此处公式结果应与机器人数量与长，宽成正比
         单位为格数
         """
-        self.close_toDelivery_width = (self.wHouse.width / 10) + 1
-        self.close_toDelivery_height = (self.wHouse.height / 10) + 1
+        self.close_toDelivery_width = int(self.wHouse.width / 10) + 1
+        self.close_toDelivery_height = int(self.wHouse.height / 10) + 1
 
 
     def priority_calculator(self, r: str) -> float:
@@ -141,17 +144,39 @@ class DynamicPlanner:
 
 
         # 使用仓库的宽度和高度作为边界
+        # allRobotPositions = set()
+        # for rids, r in self.wHouse.robots:
+        #     allRobotPositions.add(r.position)
         self.wHouse.flash_robots_position()
         bounds = (0, min(self.wHouse.width - 1, self.wHouse.height - 1))
-        robot.future_route = AStarPlanning.find_path(
+        astar = AStar()
+        obstacles = {Position(x, y) for x, y in self.wHouse.robot_positions}
+        obstacles.discard(robot.position)
+        obstacles.discard(self.wHouse.delivery_station)
+
+        robot.future_route = astar.find_path(
             robot.position,
             robot.target,
-            self.wHouse.robot_positions,
+            obstacles,
             bounds
         )
-        # print(f"{robot.future_route}")
-        # print(f"{robot}")
-        # print(f"{robot.target}")
+        # robot.future_route = AStarPlanning.find_path(
+        #     robot.position,
+        #     robot.target,
+        #     self.wHouse.robot_positions,
+        #     bounds
+        # )
+        print("\n\neeeeeeeeeeeeeeeeeeeeeeeeeeee")
+        print(robot.robot_id)
+        print(robot.position)
+        print(robot.target)
+        print(self.wHouse.robot_positions)
+        print(obstacles)
+        print(self.wHouse.unpicked_positions)
+        print(bounds)
+        print("-----")
+        print(robot.future_route)
+        print("eeeeeeeeeeeeeeeeeeeeeeeeeeee\n\n")
         if not robot.future_route:
             return False
         return True
