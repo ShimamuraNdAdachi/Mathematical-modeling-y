@@ -36,7 +36,7 @@ def func2():
     while True:
         warehouse.tick()
         warehouse.display_warehouse()
-        sleep(1)
+
 
 def func3():
     print(Direction.get_directions())
