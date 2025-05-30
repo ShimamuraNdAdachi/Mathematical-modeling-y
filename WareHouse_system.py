@@ -14,7 +14,7 @@ class Robot:
         self.carrying_item: Optional[str] = None  # 存储正在携带的货物ID（A, B, C...）
         self.item_source: Optional[str] = None  # 存储货物来源的取货点ID（PA, PB...）
         self.future_route: List[Position] = []  #存储机器人未来的路线
-        self.history_route: List[tuple[Position,bool]] = []
+        self.history_route: List[tuple] = []
         self.target: Position = None
 
     def move(self, direction: Direction) -> Position:
@@ -42,7 +42,6 @@ class Robot:
         self.item_source = None
         return source, delivered_item
 
-
 class Warehouse:
     def __init__(self, width: int, height: int):
         self.width = width
@@ -52,8 +51,19 @@ class Warehouse:
         self.robot_positions = set() # 用于跟踪机器人位置的缓存
         self.pickup_points: Dict[str, Position] = {}  # 存储所有取货点，键为取货点ID（PA, PB等）
         self.picked_shelves = set()  # 存储已被拾取的货架ID
-        self.time_count: int = 0
+        self.tick_count: int = 0
         self.dynamic_planner: DynamicPlanner = DynamicPlanner(self)
+        self.tick_successMoveCount: int = 0
+        self.unpicked_positions = [
+                        (pickup_id, position)
+                        for pickup_id, position in self.pickup_points.items()
+                        if pickup_id not in self.pickup_points
+                    ]
+        self.nearest = min(
+            self.unpicked_positions,
+            key=lambda item: ((item[1].x - self.delivery_station.x) ** 2 +
+                              (item[1].y - self.delivery_station.y) ** 2) ** 0.5
+        )
 
     def _generate_next_letter_id(self) -> str:
         """生成下一个字母ID，类似Excel列名：A, B, ..., Z, AA, AB, ..., AZ, BA, BB, ..."""
@@ -228,7 +238,7 @@ class Warehouse:
                     # distances = list()
                     # for pickId,pickPos in self.pickup_points.items():
                     #     distances.append(AStarPlanning.manhattan_distance_cal(robot.position, pickPos))
-                    robot.target = self.pickup_points[new_pickup_id]
+                    # robot.target = self.pickup_points[new_pickup_id]
                 else:
                     print("无法创建新货架，仓库已满")
 
@@ -240,6 +250,10 @@ class Warehouse:
                         pickup_id not in self.picked_shelves):  # 只能拾取未被拾取过的货架
                     robot.pick_item(pickup_id)
                     self.picked_shelves.add(pickup_id)  # 标记货架已被拾取
+                    # robot.target = self.delivery_station
+                    # print(robot.target)
+                    # print("\n\n\n\n\n\n\n\n\n\n\n\n\n")
+                    # self.dynamic_planner.set_route(robot_id)
                     print(f"机器人{robot_id}拾取货架{pickup_id}的物品")
                     break
 
@@ -273,9 +287,21 @@ class Warehouse:
                 return rid
 
     def display_warehouse(self):
-        """以表格形式显示仓库状态"""
+        """以表格形式显示仓库状态，使用终端刷新方式"""
+        import os
+        import platform
+
+        # 清屏
+        if platform.system() == "Windows":
+            os.system('cls')
+        else:
+            os.system('clear')
+
+        # 移动光标到终端顶部
+        print("\033[H", end="")
+
         # 创建表头，确保每个数字占据8个字符的宽度并居中对齐
-        header = "      " + "".join(f"{i:^8}" for i in range(self.width))
+        header = "     " + "".join(f"{i:^8}" for i in range(self.width))
         print(header)
         print("     +" + "--------" * self.width + "+")
 
@@ -324,7 +350,7 @@ class Warehouse:
                 if not robot_found:
                     # 检查是否是支付台
                     if x == self.delivery_station.x and y == self.delivery_station.y:
-                        cell_content = "   D    "
+                        cell_content = "   D1   "
                     # 检查是否是取货点 - 始终显示取货点
                     else:
                         for pickup_id, pos in self.pickup_points.items():
@@ -345,6 +371,8 @@ class Warehouse:
         print("     R1/A = 机器人R1携带A货物")
         print("     R1/A/PB = 机器人R1携带A货物且位于PB货架位置")
         print("     R1/D = 机器人R1在支付台")
+        print(f"\n当前tick数: {self.tick_count}")
+        print(f"成功移动次数: {self.tick_successMoveCount}")
 
     def add_robot_with_pickup(self, robot_id: str) -> Tuple[bool, Optional[str]]:
         """创建机器人并自动为其分配新的取货点
@@ -392,39 +420,128 @@ class Warehouse:
         for r_id, r in self.robots.items():
             self.robot_positions.add((r.position.x,r.position.y))
 
-    def tick(self) -> tuple:
+    def move_robot_use_route_plan(self, rid: str):
+        """
+        此方法使机器人仅会根据路径列表移动一次
+        自动：分配路径规划；记录历史路径
+        :param rid:
+        :return:
+        """
+        robot = self.robots[rid]
+        self.recorder(rid)
+
+        """
+        for pickId,pickPos in self.pickup_points:
+            # 机器人取货点被占用时，刚好移动至空闲取货点，造成空路径
+            if r.carrying_item:
+                r.target = self.delivery_station
+                break
+            if r.target == pickPos and not r.position == pickPos:
+                #检查当前目标取货点是否被其他机器人拾取
+                if pickId in self.picked_shelves:
+                    # 返回距离当前位置最近的未被拾取的取货点位置
+                    unpicked_positions = [
+                        (pickup_id, position)
+                        for pickup_id, position in self.pickup_points.items()
+                        if pickup_id not in self.picked_shelves
+                    ]
+
+                    if not unpicked_positions:
+                        return None
+
+                    # 计算距离并排序（假设 Position 有 x, y 属性）
+                    nearest = min(
+                        unpicked_positions,
+                        key=lambda item: ((item[1].x - r.position.x) ** 2 +
+                                          (item[1].y - r.position.y) ** 2) ** 0.5
+                    )
+                    r.target = nearest[1]
+                    r.future_route = []
+        """
+
+        if not robot.future_route:
+            self.dynamic_planner.set_route(rid)
+
+        if robot.carrying_item is not None:
+            robot.target = self.delivery_station
+            self.dynamic_planner.set_route(rid)
+        else:
+            for pickId, pickPos in self.pickup_points:
+                if (robot.target == pickPos
+                        # 检查当前目标取货点是否被其他机器人拾取
+                        and pickId in self.picked_shelves
+                        and not robot.position == pickPos):
+
+
+
+
+                    robot.target = nearest[1]
+                    self.dynamic_planner.set_route(rid)
+
+        while(True):
+            if not abs(robot.position.x - robot.future_route[0].x) + abs(robot.position.y - robot.future_route[0].y) == 1:
+                self.dynamic_planner.set_route(rid)
+            else:
+                break
+        print()
+        print(rid)
+        print(robot.carrying_item)
+        print(robot.position)
+        print(robot.future_route)
+        print(robot.target)
+
+        robot_nextPos = robot.future_route[0]
+        if self.move_robot(rid,
+                           Direction.coordinates_to_direction(
+                               robot_nextPos.x - robot.position.x,
+                               robot_nextPos.y - robot.position.y
+                           )):
+            robot.future_route.pop(0)
+            self.tick_successMoveCount += 1
+
+
+    def recorder(self, rid: str):
+        """
+        #记录历史路径，便于统计
+        :param rid:
+        :return:
+        """
+        r = self.robots[rid]
+        for pickId, pickPoint in self.pickup_points.items():
+            if pickPoint == r.position:
+                r.history_route.append(
+                    (r.position, 1)
+                )
+            elif r.position == self.delivery_station:
+                r.history_route.append(
+                    (r.position, 2)
+                )
+            else:
+                r.history_route.append(
+                    (r.position, 0)
+                )
+
+    def moveAll(self):
+        for rid, r in self.robots.items():
+            self.move_robot_use_route_plan(rid)
+
+    def tick_time(self,times: int):
+        for i in range[1:times + 1:1]:
+            self.tick()
+
+    def tick(self) -> int:
         """
         所有机器人根据路径列表全部进行一次移动
         :return: tuple(每次tick所消耗时间，单位毫秒ms;成功移动总次数)
         """
         start_time = time.perf_counter()
-        move_count = 0
-        for rid, r in self.robots.items():
-            if not r.future_route:
-                self.dynamic_planner._set_route(rid)
 
-            #记录历史路径，便于统计
-            for pickId, pickPoint in self.pickup_points.items():
-                if pickPoint == r.position or r.position == self.delivery_station:
-                    r.history_route.append(
-                        (r.position, True)
-                    )
-                else:
-                    r.history_route.append(
-                        (r.position, False)
-                    )
-            r_nextPos=r.future_route[0]
-            if self.move_robot(rid,
-                            Direction.coordinates_to_direction(
-                                r_nextPos.x - r.position.x,
-                                r_nextPos.y - r.position.y
-                            )):
-                r.future_route.pop(0)
-            #r.future_route.insert(0,r_nextPos)
-            move_count += 1
-        self.time_count += 1
+        self.moveAll()
+        self.dynamic_planner.check()
+        self.tick_count += 1
+
         end_time = time.perf_counter()
-        return ((end_time - start_time) * 1000, move_count)
+        return (end_time - start_time) * 1000
 
 
 def main():
