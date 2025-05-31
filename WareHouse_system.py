@@ -42,6 +42,11 @@ class Robot:
         self.item_source = None
         return source, delivered_item
 
+class Goods:
+    def __init__(self, goods_id: str, initial_position: Position):
+        self.id = goods_id
+        self.pos = initial_position
+
 class Warehouse:
     def __init__(self, width: int, height: int):
         self.width = width
@@ -54,11 +59,7 @@ class Warehouse:
         self.tick_count: int = 0
         self.dynamic_planner: DynamicPlanner = DynamicPlanner(self)
         self.tick_successMoveCount: int = 0
-        self.unpicked_positions = [
-                        (pickup_id, position)
-                        for pickup_id, position in self.pickup_points.items()
-                        if pickup_id not in self.pickup_points
-                    ]
+        self.unpicked_positions = []
 
 
     def _generate_next_letter_id(self) -> str:
@@ -173,36 +174,14 @@ class Warehouse:
         del self.robots[robot_id]
         return True
 
-    def move_robot(self, robot_id: str, direction: Direction) -> bool:
-        """移动指定的机器人"""
-        if robot_id not in self.robots:
-            return False
-
-        robot = self.robots[robot_id]
-        new_position = robot.position + direction.value
-
-        if not self._is_position_valid(new_position):
-            return False
-
-        if not self._is_position_available(new_position):
-            self.dynamic_planner.assignment_type(
-                robot_id,
-                self._get_position_unavailable_robot(new_position),
-                "collision"
-            )
-            return False
-
-        # 更新机器人位置
-        #self.robot_positions.remove((robot.position.x, robot.position.y))
-        robot.move(direction)
-        #self.robot_positions.add((robot.position.x, robot.position.y))
-
+    def on_delivery(self, rid: str):
         # 检查是否到达支付台并且携带货物
+        robot = self.robots[rid]
         if (robot.position.x == self.delivery_station.x and
                 robot.position.y == self.delivery_station.y):
             if robot.carrying_item is not None:
                 source, delivered_item = robot.deliver_item()
-                print(f"机器人{robot_id}在支付台交付货物{delivered_item}")
+                print(f"机器人{rid}在支付台交付货物{delivered_item}")
 
                 # 根据交付的货物ID创建对应的取货点ID
                 new_pickup_id = f"P{delivered_item}"
@@ -238,6 +217,8 @@ class Warehouse:
                 else:
                     print("无法创建新货架，仓库已满")
 
+    def on_pickup(self, rid: str):
+        robot = self.robots[rid]
         # 检查机器人是否在某个取货点上
         if robot.carrying_item is None:  # 只有未携带物品的机器人才能拾取
             for pickup_id, pickup_pos in self.pickup_points.items():
@@ -250,8 +231,39 @@ class Warehouse:
                     # print(robot.target)
                     # print("\n\n\n\n\n\n\n\n\n\n\n\n\n")
                     # self.dynamic_planner.set_route(robot_id)
-                    print(f"机器人{robot_id}拾取货架{pickup_id}的物品")
+                    self.unpicked_positions = [
+                        (pickup_id, position)
+                        for pickup_id, position in self.pickup_points.items()
+                        if pickup_id not in self.pickup_points
+                    ]
+                    print(f"机器人{rid}拾取货架{pickup_id}的物品")
                     break
+
+    def move_robot(self, robot_id: str, direction: Direction) -> bool:
+        """移动指定的机器人"""
+        if robot_id not in self.robots:
+            return False
+
+        robot = self.robots[robot_id]
+        new_position = robot.position + direction.value
+
+        if not self._is_position_valid(new_position):
+            return False
+
+        if not self._is_position_available(new_position):
+            self.dynamic_planner.assignment_type(
+                robot_id,
+                self._get_position_unavailable_robot(new_position),
+                "collision"
+            )
+            return False
+
+        # 更新机器人位置
+        robot.move(direction)
+        #self.robot_positions.remove((robot.position.x, robot.position.y))
+        #self.robot_positions.add((robot.position.x, robot.position.y))
+
+
 
         return True
 
@@ -426,6 +438,9 @@ class Warehouse:
         robot = self.robots[rid]
         self.recorder(rid)
 
+        self.on_delivery(rid)
+        self.on_pickup(rid)
+
         if not robot.future_route:
             self.dynamic_planner.set_route(rid)
         """
@@ -456,7 +471,7 @@ class Warehouse:
                     r.target = nearest[1]
                     r.future_route = []
         """
-        if robot.carrying_item is not None:
+        if robot.carrying_item is not None and robot.position != self.delivery_station:
             robot.target = self.delivery_station
             self.dynamic_planner.set_route(rid)
         else:
@@ -470,10 +485,15 @@ class Warehouse:
             #     key=lambda item: ((item[1].x - self.delivery_station.x) ** 2 +
             #                       (item[1].y - self.delivery_station.y) ** 2) ** 0.5
             # )
+            # for pickId, pickPos in self.pickup_points:
+            #     if pickPos == robot.target:
+            #         self.picked_shelves.add(pickId)
+            pickIds = set()
             for pickId, pickPos in self.pickup_points:
-                if pickPos == robot.target:
-                    self.picked_shelves.add(pickId)
-            robot.target = self.unpicked_positions[0]
+                pickIds.add(pickId)
+            unpick = pickIds.difference(self.picked_shelves).pop()
+
+            robot.target = unpick
             self.dynamic_planner.set_route(rid)
 
         if self.move_robot(rid,

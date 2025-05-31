@@ -166,17 +166,19 @@ class DynamicPlanner:
         #     self.wHouse.robot_positions,
         #     bounds
         # )
-        print("\n\neeeeeeeeeeeeeeeeeeeeeeeeeeee")
-        print(robot.robot_id)
-        print(robot.position)
-        print(robot.target)
-        print(self.wHouse.robot_positions)
-        print(obstacles)
-        print(self.wHouse.unpicked_positions)
-        print(bounds)
-        print("-----")
-        print(robot.future_route)
-        print("eeeeeeeeeeeeeeeeeeeeeeeeeeee\n\n")
+        if True:
+            print("\n\neeeeeeeeeeeeeeeeeeeeeeeeeeee")
+            print(f"rid:{robot.robot_id}")
+            print(f"rPos:{robot.position}")
+            print(f"rTgt:{robot.target}")
+            print(f"allRobotPos:{self.wHouse.robot_positions}")
+            print(f"zhangaiwu:{obstacles}")
+            print(f"unpickPos:{self.wHouse.unpicked_positions}")
+            print(f"picked_she{self.wHouse.picked_shelves}")
+            print(f"bounds:{bounds}")
+            print(f"futureRoute:{robot.future_route}")
+            print("eeeeeeeeeeeeeeeeeeeeeeeeeeee\n\n")
+
         if not robot.future_route:
             return False
         return True
