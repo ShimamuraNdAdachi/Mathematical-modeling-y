@@ -68,11 +68,13 @@ class DynamicPlanner:
         if not r2.future_route:
             self.wHouse.dynamic_planner.set_route(robot2)
         #后追前
-        #当处于后追前时，后方机器人暂停移动一次
+
         if len(r1.future_route) == 1:
             return "approaching_delivery"
-        if len(r1.future_route) < 2 and len(r2.future_route) < 2:
+
+        if len(r1.future_route) < 2 or len(r2.future_route) < 2:
             return "route_wrong"
+
         if r1.future_route[1] == r2.future_route[0]:
             return "chase"
         elif r2.future_route[0] != r1.future_route[1] and r2.future_route[0] != r1.position:
@@ -115,57 +117,38 @@ class DynamicPlanner:
     def set_route(self, rid: str) -> bool:
         robot = self.wHouse.robots[rid]
 
+        # 确保 target 是 Position 对象
+        if not isinstance(robot.target, Position):
+            print(f"警告：机器人{rid}的目标不是Position对象")
+            return False
 
-        # if robot.carrying_item is not None:
-        #     robot.target = self.wHouse.delivery_station
-        # else:
-        #     for pickId, pickPos in self.wHouse.pickup_points:
-        #         if (robot.target == pickPos
-        #                 # 检查当前目标取货点是否被其他机器人拾取
-        #                 and pickId in self.wHouse.picked_shelves
-        #                 and not robot.position == pickPos):
-        #             # 返回距离当前位置最近的未被拾取的取货点位置
-        #             unpicked_positions = [
-        #                 (pickup_id, position)
-        #                 for pickup_id, position in self.wHouse.pickup_points.items()
-        #                 if pickup_id not in self.wHouse.pickup_points
-        #             ]
-        #
-        #             # if not unpicked_positions:
-        #
-        #             # 计算距离并排序（假设 Position 有 x, y 属性）
-        #             nearest = min(
-        #                 unpicked_positions,
-        #                 key=lambda item: ((item[1].x - robot.position.x) ** 2 +
-        #                                   (item[1].y - robot.position.y) ** 2) ** 0.5
-        #             )
-        #             robot.target = nearest[1]
-        #             print(robot.target)
+        # 如果目标就是当前位置，不需要规划路径
+        if robot.target == robot.position:
+            robot.future_route = []
+            return True
 
-
-        # 使用仓库的宽度和高度作为边界
-        # allRobotPositions = set()
-        # for rids, r in self.wHouse.robots:
-        #     allRobotPositions.add(r.position)
         self.wHouse.flash_robots_position()
         bounds = (0, min(self.wHouse.width - 1, self.wHouse.height - 1))
         astar = AStar()
-        obstacles = {Position(x, y) for x, y in self.wHouse.robot_positions}
-        obstacles.discard(robot.position)
-        obstacles.discard(self.wHouse.delivery_station)
+        
+        # 获取其他机器人的位置作为障碍物
+        obstacles = set()
+        for x, y in self.wHouse.robot_positions:
+            # 不把自己的位置和目标位置添加为障碍物
+            if (x, y) != (robot.position.x, robot.position.y) and \
+               (x, y) != (robot.target.x, robot.target.y) and \
+               (x, y) != (self.wHouse.delivery_station.x, self.wHouse.delivery_station.y):
+                obstacles.add(Position(x, y))
 
+        # 尝试找到路径
         robot.future_route = astar.find_path(
             robot.position,
             robot.target,
             obstacles,
             bounds
         )
-        # robot.future_route = AStarPlanning.find_path(
-        #     robot.position,
-        #     robot.target,
-        #     self.wHouse.robot_positions,
-        #     bounds
-        # )
+
+        # 调试信息
         if True:
             print("\n\neeeeeeeeeeeeeeeeeeeeeeeeeeee")
             print(f"rid:{robot.robot_id}")
@@ -179,9 +162,7 @@ class DynamicPlanner:
             print(f"futureRoute:{robot.future_route}")
             print("eeeeeeeeeeeeeeeeeeeeeeeeeeee\n\n")
 
-        if not robot.future_route:
-            return False
-        return True
+        return len(robot.future_route) > 0
 
 
 

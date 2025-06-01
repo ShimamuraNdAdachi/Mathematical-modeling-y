@@ -25,7 +25,7 @@ def func1():
 
 def func2():
     warehouse = Warehouse(20, 20)
-    print("we")
+    print("初始化仓库系统...")
     success, pickup_id = warehouse.add_robot_with_pickup("R1")
     success, pickup_id = warehouse.add_robot_with_pickup("R2")
     success, pickup_id = warehouse.add_robot_with_pickup("R3")
@@ -33,9 +33,29 @@ def func2():
     success, pickup_id = warehouse.add_robot_with_pickup("R5")
 
     warehouse.display_warehouse()
-    while True:
-        warehouse.tick()
-        warehouse.display_warehouse()
+    max_ticks = 1000  # 最大运行100个时间单位
+    tick_count = 0
+    
+    try:
+        while tick_count < max_ticks:
+            warehouse.tick()
+            warehouse.display_warehouse()
+            #sleep(0.5)  # 添加0.5秒延时，使显示更容易观察
+            tick_count += 1
+            
+            # 检查是否所有机器人都完成了任务
+            all_done = True
+            for rid, robot in warehouse.robots.items():
+                if robot.carrying_item is not None or len(robot.future_route) > 0:
+                    all_done = False
+                    break
+            
+            if all_done and False:
+                print("\n所有机器人已完成任务！")
+                break
+                
+    except KeyboardInterrupt:
+        print("\n程序被用户中断")
 
 
 def func3():

@@ -119,28 +119,30 @@ class Warehouse:
             return False
 
         if initial_position is None:
-            # # 找一个不是取货点也不是支付台的空闲位置
-            # occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
-            # occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
-            # self.flash_robots_position()
-            # occupied_positions.update(self.robot_positions)
-            #
-            # available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
-            #                        if (x, y) not in occupied_positions]
-            #
-            # if not available_positions:
-            #     return False
-            #
-            # pos_x, pos_y = random.choice(available_positions)
-            initial_position = Position(-1, -1)
-        elif not self._is_position_valid(initial_position) or \
-                not self._is_position_available(initial_position):
+            # 找一个不是取货点也不是支付台的空闲位置
+            occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
+            occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
+            self.flash_robots_position()
+            occupied_positions.update(self.robot_positions)
+
+            available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
+                                if (x, y) not in occupied_positions]
+
+            if not available_positions:
+                return False
+
+            pos_x, pos_y = random.choice(available_positions)
+            initial_position = Position(pos_x, pos_y)
+        elif not self._is_position_valid(initial_position):
+            print(f"位置 ({initial_position.x}, {initial_position.y}) 超出仓库范围")
+            return False
+        elif not self._is_position_available(initial_position):
+            print(f"位置 ({initial_position.x}, {initial_position.y}) 已被占用")
             return False
 
         robot = Robot(robot_id, initial_position)
         robot.target = self.delivery_station
         self.robots[robot_id] = robot
-        #self.robot_positions.add((initial_position.x, initial_position.y)) #此步移入刷新缓存flash_robots_position方法中
         return True
 
     def place_robot_at_pickup(self, robot_id: str, pickup_id: str) -> bool:
@@ -175,7 +177,12 @@ class Warehouse:
         return True
 
     def on_delivery(self, rid: str):
-        # 检查是否到达支付台并且携带货物
+        """
+        处理机器人到达支付台的逻辑
+        - 如果机器人携带物品，则交付物品
+        - 交付后创建新的取货点
+        - 设置机器人的新目标
+        """
         robot = self.robots[rid]
         if (robot.position.x == self.delivery_station.x and
                 robot.position.y == self.delivery_station.y):
@@ -191,31 +198,35 @@ class Warehouse:
                     self.remove_pickup_point(new_pickup_id)
                     print(f"移除货架{new_pickup_id}")
 
-                # 获取所有可用位置
-                occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
-                occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
-                self.flash_robots_position()
-                occupied_positions.update(self.robot_positions)
-                occupied_positions.remove((robot.position.x, robot.position.y))
-
-                available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
-                                       if (x, y) not in occupied_positions]
-
-                if available_positions:
-                    # 随机选择一个可用位置，创建新货架
-                    pos_x, pos_y = random.choice(available_positions)
-                    self.pickup_points[new_pickup_id] = Position(pos_x, pos_y)
+                # 创建新的取货点
+                new_pickup_id = self.add_pickup_point()
+                if new_pickup_id:
                     print(f"创建新货架{new_pickup_id}")
-                    # 新创建的货架未被拾取
-                    if new_pickup_id in self.picked_shelves:
-                        self.picked_shelves.remove(new_pickup_id)
-                    # 分配此机器人下一个目标
-                    # distances = list()
-                    # for pickId,pickPos in self.pickup_points.items():
-                    #     distances.append(AStarPlanning.manhattan_distance_cal(robot.position, pickPos))
-                    # robot.target = self.pickup_points[new_pickup_id]
+                
+                # 立即寻找新的未被拾取的货架作为目标
+                unpicked_shelves = set()
+                for pickId, pickPos in self.pickup_points.items():
+                    if pickId not in self.picked_shelves:
+                        unpicked_shelves.add((pickId, pickPos))
+                
+                if unpicked_shelves:
+                    # 选择一个未被拾取的货架
+                    unpicked_id, unpicked_pos = unpicked_shelves.pop()
+                    robot.target = unpicked_pos
+                    robot.future_route = []  # 清空当前路径，强制重新规划
+                    print(f"机器人{rid}的新目标设置为取货点{unpicked_id}")
                 else:
-                    print("无法创建新货架，仓库已满")
+                    # 如果没有可用的取货点，让机器人移动到一个随机位置
+                    available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
+                                        if (x, y) not in self.robot_positions and 
+                                        (x, y) != (self.delivery_station.x, self.delivery_station.y)]
+                    if available_positions:
+                        x, y = random.choice(available_positions)
+                        robot.target = Position(x, y)
+                        robot.future_route = []
+                        print(f"机器人{rid}暂无可用取货点，移动到随机位置({x}, {y})")
+                    else:
+                        print(f"机器人{rid}无法找到可用的移动位置")
 
     def on_pickup(self, rid: str):
         robot = self.robots[rid]
@@ -388,40 +399,33 @@ class Warehouse:
         Returns:
             Tuple[bool, Optional[str]]: (是否成功, 分配的取货点ID)
         """
-        # 先创建新地取货点
+        # 先创建新的取货点
         pickup_id = self.add_pickup_point()
         if not pickup_id:
             print(f"无法为机器人{robot_id}创建新的取货点")
             return False, None
 
-        # 先在一个临时位置创建机器人
-        temp_pos = None
-        # for x in range(self.width):
-        #     for y in range(self.height):
-        #         pos = Position(x, y)
-        #         if self._is_position_valid(pos) and self._is_position_available(pos):
-        #             temp_pos = pos
-        #             break
-        #     if temp_pos:
-        #         break
-        #
-        # if not temp_pos:
-        #     self.remove_pickup_point(pickup_id)
-        #     return False, None
-
-        # 创建机器人在临时位置
-        if not self.add_robot(robot_id, temp_pos):
+        # 获取取货点位置
+        pickup_pos = self.pickup_points[pickup_id]
+        
+        # 创建机器人在取货点位置
+        if not self.add_robot(robot_id, pickup_pos):
             self.remove_pickup_point(pickup_id)
+            print(f"无法在取货点{pickup_id}创建机器人{robot_id}")
             return False, None
 
-        # 将机器人移动到取货点并拾取物品
-        if not self.place_robot_at_pickup(robot_id, pickup_id):
+        # 让机器人拾取物品
+        robot = self.robots[robot_id]
+        if robot.pick_item(pickup_id):
+            self.picked_shelves.add(pickup_id)  # 标记货架已被拾取
+            robot.target = self.delivery_station  # 设置目标为支付台
+            print(f"机器人{robot_id}已创建并在取货点{pickup_id}拾取物品")
+            return True, pickup_id
+        else:
             self.remove_robot(robot_id)
             self.remove_pickup_point(pickup_id)
+            print(f"机器人{robot_id}无法在取货点{pickup_id}拾取物品")
             return False, None
-
-        print(f"机器人{robot_id}已创建并分配到取货点{pickup_id}")
-        return True, pickup_id
 
     def flash_robots_position(self):
         self.robot_positions = set()
@@ -430,7 +434,6 @@ class Warehouse:
 
     def move_robot_use_route_plan(self, rid: str):
         """
-        此方法使机器人仅会根据路径列表移动一次
         自动：分配路径规划；记录历史路径
         :param rid:
         :return:
@@ -438,87 +441,74 @@ class Warehouse:
         robot = self.robots[rid]
         self.recorder(rid)
 
+        # 先处理交付和拾取
         self.on_delivery(rid)
         self.on_pickup(rid)
 
+        # 如果没有规划好的路径，需要规划新路径
         if not robot.future_route:
-            self.dynamic_planner.set_route(rid)
-        """
-        for pickId,pickPos in self.pickup_points:
-            # 机器人取货点被占用时，刚好移动至空闲取货点，造成空路径
-            if r.carrying_item:
-                r.target = self.delivery_station
-                break
-            if r.target == pickPos and not r.position == pickPos:
-                #检查当前目标取货点是否被其他机器人拾取
-                if pickId in self.picked_shelves:
-                    # 返回距离当前位置最近的未被拾取的取货点位置
-                    unpicked_positions = [
-                        (pickup_id, position)
-                        for pickup_id, position in self.pickup_points.items()
-                        if pickup_id not in self.picked_shelves
-                    ]
+            # 如果携带物品，目标应该是支付台
+            if robot.carrying_item is not None:
+                if robot.target != self.delivery_station:
+                    robot.target = self.delivery_station
+                    print(f"机器人{rid}携带物品{robot.carrying_item}，前往支付台")
+                if not self.dynamic_planner.set_route(rid):
+                    print(f"机器人{rid}无法找到路径到支付台，等待下一次尝试")
+                    return False
+            else:
+                # 如果没有携带物品，寻找未被拾取的货架
+                unpicked_shelves = set()
+                for pickId, pickPos in self.pickup_points.items():
+                    if pickId not in self.picked_shelves:
+                        unpicked_shelves.add((pickId, pickPos))
+                
+                if unpicked_shelves:
+                    # 选择一个未被拾取的货架
+                    unpicked_id, unpicked_pos = unpicked_shelves.pop()
+                    if robot.target != unpicked_pos:
+                        robot.target = unpicked_pos
+                        print(f"机器人{rid}前往取货点{unpicked_id}")
+                    if not self.dynamic_planner.set_route(rid):
+                        print(f"机器人{rid}无法找到路径到取货点{unpicked_id}，等待下一次尝试")
+                        return False
+                else:
+                    # 如果没有未被拾取的货架，且机器人在支付台，移动到随机位置
+                    if robot.position == self.delivery_station:
+                        available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
+                                            if (x, y) not in self.robot_positions and 
+                                            (x, y) != (self.delivery_station.x, self.delivery_station.y)]
+                        if available_positions:
+                            x, y = random.choice(available_positions)
+                            robot.target = Position(x, y)
+                            print(f"机器人{rid}从支付台移动到随机位置({x}, {y})")
+                            if not self.dynamic_planner.set_route(rid):
+                                print(f"机器人{rid}无法找到路径到随机位置，等待下一次尝试")
+                                return False
+                        else:
+                            print(f"机器人{rid}无法找到可用的移动位置")
+                            return False
+                    else:
+                        # 如果不在支付台，可以暂时待命
+                        if robot.target != robot.position:
+                            robot.target = robot.position
+                            print(f"机器人{rid}当前无任务，待命中")
+                        return True
 
-                    if not unpicked_positions:
-                        return None
+        # 确保有可用的路径
+        if not robot.future_route:
+            return False
 
-                    # 计算距离并排序（假设 Position 有 x, y 属性）
-                    nearest = min(
-                        unpicked_positions,
-                        key=lambda item: ((item[1].x - r.position.x) ** 2 +
-                                          (item[1].y - r.position.y) ** 2) ** 0.5
-                    )
-                    r.target = nearest[1]
-                    r.future_route = []
-        """
-        if robot.carrying_item is not None and robot.position != self.delivery_station:
-            robot.target = self.delivery_station
-            self.dynamic_planner.set_route(rid)
-        else:
-            # for pickId, pickPos in self.pickup_points:
-            #     if (robot.target == pickPos
-            #             # 检查当前目标取货点是否被其他机器人拾取
-            #             and pickId in self.picked_shelves
-            #             and not robot.position == pickPos):
-            # nearest_unpicked_positions = min(
-            #     self.unpicked_positions,
-            #     key=lambda item: ((item[1].x - self.delivery_station.x) ** 2 +
-            #                       (item[1].y - self.delivery_station.y) ** 2) ** 0.5
-            # )
-            # for pickId, pickPos in self.pickup_points:
-            #     if pickPos == robot.target:
-            #         self.picked_shelves.add(pickId)
-            pickIds = set()
-            for pickId, pickPos in self.pickup_points:
-                pickIds.add(pickId)
-            unpick = pickIds.difference(self.picked_shelves).pop()
-
-            robot.target = unpick
-            self.dynamic_planner.set_route(rid)
-
+        # 移动机器人
         if self.move_robot(rid,
-                           Direction.coordinates_to_direction(
-                               robot.future_route[0].x - robot.position.x,
-                               robot.future_route[0].y - robot.position.y
-                           )):
+                        Direction.coordinates_to_direction(
+                            robot.future_route[0].x - robot.position.x,
+                            robot.future_route[0].y - robot.position.y
+                        )):
             robot.future_route.pop(0)
             self.tick_successMoveCount += 1
+            return True
 
-        while False:
-            if not abs(robot.position.x - robot.future_route[0].x) + abs(robot.position.y - robot.future_route[0].y) == 1:
-                self.dynamic_planner.set_route(rid)
-                # print()
-                # print(rid)
-                # print(robot.carrying_item)
-                # print(robot.position)
-                # print(robot.future_route)
-                # print(robot.target)
-            else:
-                break
-
-
-
-
+        return False
 
     def recorder(self, rid: str):
         """
