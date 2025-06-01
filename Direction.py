@@ -6,6 +6,7 @@ class Direction(Enum):
     LEFT = (-1, 0)  # 向左移动时x减小
     RIGHT = (1, 0)  # 向右移动时x增加
 
+
     @classmethod
     def get_directions(cls) -> tuple:
         """返回包含所有方向值的元组"""
