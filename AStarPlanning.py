@@ -11,7 +11,7 @@ class AStarPlanning:
     def manhattan_distance_cal(position1: Position, position2: Position) -> int:
         return abs(position1.x-position2.x)+abs(position1.y-position2.y)
 
-    def find_path(pos1: Position, pos2: Position, positions: Set[Position], bounds: Tuple[int, int] = None) -> List[
+    def find_path(pos1: Position, pos2: Position, positions: Set, bounds: Tuple[int, int] = None) -> List[
         Position]:
         """
         使用A*算法寻找从pos1到pos2的路径，避开障碍物
@@ -22,9 +22,8 @@ class AStarPlanning:
         :return: Position对象列表，表示路径
         """
         # 将障碍物位置转换为元组集合以便快速查找
-        obstacles = set()
-        for pos in positions:
-            obstacles.add(pos)
+        obstacles = positions
+
         # obstacles = {(pos.x, pos.y) for pos in positions}
 
         # 初始化open和closed集合
