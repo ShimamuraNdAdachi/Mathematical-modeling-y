@@ -128,7 +128,7 @@ class DynamicPlanner:
             return True
 
         self.wHouse.flash_robots_position()
-        bounds = (0, min(self.wHouse.width - 1, self.wHouse.height - 1))
+        bounds = (0, max(self.wHouse.width - 1, self.wHouse.height - 1))  # 修改为使用最大值
         astar = AStar()
         
         # 获取其他机器人的位置作为障碍物
@@ -136,8 +136,7 @@ class DynamicPlanner:
         for x, y in self.wHouse.robot_positions:
             # 不把自己的位置和目标位置添加为障碍物
             if (x, y) != (robot.position.x, robot.position.y) and \
-               (x, y) != (robot.target.x, robot.target.y) and \
-               (x, y) != (self.wHouse.delivery_station.x, self.wHouse.delivery_station.y):
+               (x, y) != (robot.target.x, robot.target.y):
                 obstacles.add(Position(x, y))
 
         # 尝试找到路径
@@ -148,19 +147,20 @@ class DynamicPlanner:
             bounds
         )
 
-        # 调试信息
-        if True:
-            print("\n\neeeeeeeeeeeeeeeeeeeeeeeeeeee")
-            print(f"rid:{robot.robot_id}")
-            print(f"rPos:{robot.position}")
-            print(f"rTgt:{robot.target}")
-            print(f"allRobotPos:{self.wHouse.robot_positions}")
-            print(f"zhangaiwu:{obstacles}")
-            print(f"unpickPos:{self.wHouse.unpicked_positions}")
-            print(f"picked_she{self.wHouse.picked_shelves}")
-            print(f"bounds:{bounds}")
-            print(f"futureRoute:{robot.future_route}")
-            print("eeeeeeeeeeeeeeeeeeeeeeeeeeee\n\n")
+        # 如果找不到路径，尝试移除一些障碍物再次尝试
+        if not robot.future_route:
+            # 移除支付台周围的障碍物
+            delivery_station = self.wHouse.delivery_station
+            obstacles = set(ob for ob in obstacles 
+                          if abs(ob.x - delivery_station.x) > 2 or 
+                             abs(ob.y - delivery_station.y) > 2)
+            
+            robot.future_route = astar.find_path(
+                robot.position,
+                robot.target,
+                obstacles,
+                bounds
+            )
 
         return len(robot.future_route) > 0
 

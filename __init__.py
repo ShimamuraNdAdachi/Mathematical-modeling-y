@@ -33,14 +33,21 @@ def func2():
     success, pickup_id = warehouse.add_robot_with_pickup("R5")
 
     warehouse.display_warehouse()
-    max_ticks = 1000  # 最大运行100个时间单位
+    max_ticks = 1000  # 最大运行1000个时间单位
     tick_count = 0
     
     try:
         while tick_count < max_ticks:
+            # 显示当前状态
+            print("\n当前状态:")
+            print("取货点:", warehouse.pickup_points)
+            print("已拾取货架:", warehouse.picked_shelves)
+            for rid, robot in warehouse.robots.items():
+                print(f"机器人{rid}: 位置={robot.position}, 携带={robot.carrying_item}, 目标={robot.target}")
+            
             warehouse.tick()
             warehouse.display_warehouse()
-            #sleep(0.5)  # 添加0.5秒延时，使显示更容易观察
+            sleep(0.5)  # 添加0.5秒延时，使显示更容易观察
             tick_count += 1
             
             # 检查是否所有机器人都完成了任务
@@ -56,6 +63,9 @@ def func2():
                 
     except KeyboardInterrupt:
         print("\n程序被用户中断")
+    finally:
+        print("\n=== 最终统计信息 ===")
+        warehouse.calculate_statistics()
 
 
 def func3():
