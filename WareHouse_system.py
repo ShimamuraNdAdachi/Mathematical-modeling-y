@@ -77,33 +77,32 @@ class Warehouse:
         return int_to_excel_col(len(self.pickup_points) + 1)
 
     def add_pickup_point(self) -> Optional[str]:
-        """添加一个新地取货点，返回新取货点的ID"""
+        """添加一个新的取货点，返回新取货点的ID"""
         # 计算下一个取货点的字母标识
         next_letter = self._generate_next_letter_id()
         pickup_id = f"P{next_letter}"
 
-        # 获取所有可用位置
+        # 获取所有已占用的位置
         occupied_positions = {(pos.x, pos.y) for pos in self.pickup_points.values()}
         occupied_positions.add((self.delivery_station.x, self.delivery_station.y))
         self.flash_robots_position()
         occupied_positions.update(self.robot_positions)
 
-        # 尝试找到离支付台较远的位置
+        # 获取所有可用位置
         available_positions = []
         for x in range(self.width):
             for y in range(self.height):
                 if (x, y) not in occupied_positions:
-                    # 计算到支付台的距离
-                    distance = abs(x - self.delivery_station.x) + abs(y - self.delivery_station.y)
-                    available_positions.append((x, y, distance))
+                    # 确保不会在支付台的紧邻位置创建取货点
+                    if abs(x - self.delivery_station.x) + abs(y - self.delivery_station.y) > 1:
+                        available_positions.append((x, y))
 
         if not available_positions:
             print(f"无法创建取货点{pickup_id}：没有可用位置")
             return None
 
-        # 选择离支付台较远的位置
-        available_positions.sort(key=lambda p: p[2], reverse=True)  # 按距离降序排序
-        pos_x, pos_y, _ = available_positions[0]  # 选择最远的位置
+        # 随机选择一个位置
+        pos_x, pos_y = random.choice(available_positions)
         self.pickup_points[pickup_id] = Position(pos_x, pos_y)
         print(f"创建取货点{pickup_id}在位置({pos_x}, {pos_y})")
         return pickup_id
@@ -237,50 +236,41 @@ class Warehouse:
                         for y in range(self.height):
                             if (x, y) not in self.robot_positions and \
                                (x, y) != (self.delivery_station.x, self.delivery_station.y):
-                                # 计算到支付台的距离
-                                distance = abs(x - self.delivery_station.x) + abs(y - self.delivery_station.y)
-                                available_positions.append((x, y, distance))
+                                available_positions.append((x, y))
                     
                     if available_positions:
-                        available_positions.sort(key=lambda p: p[2], reverse=True)  # 选择离支付台最远的位置
-                        x, y, _ = available_positions[0]
+                        x, y = random.choice(available_positions)
                         robot.target = Position(x, y)
                         robot.future_route = []
-                        print(f"机器人{rid}移动到远离支付台的位置({x}, {y})")
+                        print(f"机器人{rid}移动到随机位置({x}, {y})")
                     return
                 
                 # 立即寻找新的未被拾取的货架作为目标
                 unpicked_shelves = []
                 for pickId, pickPos in self.pickup_points.items():
                     if pickId not in self.picked_shelves:
-                        # 计算到当前位置的距离
-                        distance = abs(pickPos.x - robot.position.x) + abs(pickPos.y - robot.position.y)
-                        unpicked_shelves.append((pickId, pickPos, distance))
+                        unpicked_shelves.append((pickId, pickPos))
                 
                 if unpicked_shelves:
-                    # 选择最近的未拾取货架
-                    unpicked_shelves.sort(key=lambda x: x[2])  # 按距离升序排序
-                    unpicked_id, unpicked_pos, _ = unpicked_shelves[0]
+                    # 随机选择一个未拾取的货架
+                    unpicked_id, unpicked_pos = random.choice(unpicked_shelves)
                     robot.target = unpicked_pos
                     robot.future_route = []  # 清空当前路径，强制重新规划
-                    print(f"机器人{rid}的新目标设置为最近的取货点{unpicked_id}")
+                    print(f"机器人{rid}的新目标设置为取货点{unpicked_id}")
                 else:
-                    # 如果没有可用的取货点，让机器人移动到离支付台较远的位置
+                    # 如果没有可用的取货点，让机器人移动到随机位置
                     available_positions = []
                     for x in range(self.width):
                         for y in range(self.height):
                             if (x, y) not in self.robot_positions and \
                                (x, y) != (self.delivery_station.x, self.delivery_station.y):
-                                # 计算到支付台的距离
-                                distance = abs(x - self.delivery_station.x) + abs(y - self.delivery_station.y)
-                                available_positions.append((x, y, distance))
+                                available_positions.append((x, y))
                     
                     if available_positions:
-                        available_positions.sort(key=lambda p: p[2], reverse=True)  # 选择离支付台最远的位置
-                        x, y, _ = available_positions[0]
+                        x, y = random.choice(available_positions)
                         robot.target = Position(x, y)
                         robot.future_route = []  # 清空当前路径，强制重新规划
-                        print(f"机器人{rid}暂无可用取货点，移动到远离支付台的位置({x}, {y})")
+                        print(f"机器人{rid}暂无可用取货点，移动到随机位置({x}, {y})")
 
     def move_robot(self, robot_id: str, direction: Direction) -> bool:
         """移动指定的机器人"""
@@ -488,15 +478,15 @@ class Warehouse:
                     print(f"机器人{rid}无法找到路径到支付台，等待下一次尝试")
                     return False
             else:
-                # 如果没有携带物品，寻找未被拾取的货架
-                unpicked_shelves = set()
+                # 如果没有携带物品，随机选择一个未被拾取的货架
+                unpicked_shelves = []
                 for pickId, pickPos in self.pickup_points.items():
                     if pickId not in self.picked_shelves:
-                        unpicked_shelves.add((pickId, pickPos))
+                        unpicked_shelves.append((pickId, pickPos))
                 
                 if unpicked_shelves:
-                    # 选择一个未被拾取的货架
-                    unpicked_id, unpicked_pos = unpicked_shelves.pop()
+                    # 随机选择一个未拾取的货架
+                    unpicked_id, unpicked_pos = random.choice(unpicked_shelves)
                     if robot.target != unpicked_pos:
                         robot.target = unpicked_pos
                         print(f"机器人{rid}前往取货点{unpicked_id}")
@@ -505,9 +495,13 @@ class Warehouse:
                         return False
                 else:
                     # 如果没有未被拾取的货架，移动到随机位置
-                    available_positions = [(x, y) for x in range(self.width) for y in range(self.height)
-                                        if (x, y) not in self.robot_positions and 
-                                        (x, y) != (self.delivery_station.x, self.delivery_station.y)]
+                    available_positions = []
+                    for x in range(self.width):
+                        for y in range(self.height):
+                            if (x, y) not in self.robot_positions and \
+                               (x, y) != (self.delivery_station.x, self.delivery_station.y):
+                                available_positions.append((x, y))
+                    
                     if available_positions:
                         x, y = random.choice(available_positions)
                         robot.target = Position(x, y)
@@ -533,8 +527,6 @@ class Warehouse:
             robot.future_route.pop(0)
             self.tick_successMoveCount += 1
             return True
-        else:
-            self.dynamic_planner.set_route(rid)
 
         return False
 
